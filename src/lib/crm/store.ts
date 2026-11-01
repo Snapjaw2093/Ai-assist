@@ -1,14 +1,35 @@
+import { createClient } from "redis";
 import type { CallRecord, Customer, Job, JobStatus } from "./types";
 
-// Storage: Upstash Redis over plain HTTPS (add it from Vercel -> Storage -> Upstash Redis and
-// the two env vars below appear automatically). With no Redis configured, an in-memory store is
-// used so local development and tests work; it forgets everything on restart, so it is NOT for production.
+// Storage, picked from whichever env vars exist:
+//   1. Upstash REST   (UPSTASH_REDIS_REST_URL/_TOKEN or KV_REST_API_URL/_TOKEN): plain HTTPS
+//   2. Standard Redis (REDIS_URL, what Vercel's "Redis" integration provides): normal Redis connection
+//   3. Neither: in-memory, so local development and tests work. It forgets everything on restart: NOT for production.
 const URL_ = process.env.UPSTASH_REDIS_REST_URL ?? process.env.KV_REST_API_URL;
 const TOKEN = process.env.UPSTASH_REDIS_REST_TOKEN ?? process.env.KV_REST_API_TOKEN;
+const REDIS_URL = process.env.REDIS_URL;
 
-export const storeMode: "redis" | "memory" = URL_ && TOKEN ? "redis" : "memory";
+export const storeMode: "rest" | "redis" | "memory" = URL_ && TOKEN ? "rest" : REDIS_URL ? "redis" : "memory";
+export const isPersistent = storeMode !== "memory";
 
-async function redis(...cmd: (string | number)[]): Promise<unknown> {
+type Cmd = (string | number)[];
+
+// One connection per server instance, reused between requests; reconnects if it drops.
+type TcpClient = { isOpen: boolean; connect(): Promise<unknown>; sendCommand(args: string[]): Promise<unknown> };
+const gc = globalThis as unknown as { __redisClient?: TcpClient };
+async function tcp(...cmd: Cmd): Promise<unknown> {
+  if (!gc.__redisClient) {
+    const c = createClient({ url: REDIS_URL, socket: { connectTimeout: 8000 } });
+    c.on("error", () => {}); // errors surface on the command that hits them
+    gc.__redisClient = c as unknown as TcpClient;
+  }
+  const client = gc.__redisClient;
+  if (!client.isOpen) await client.connect();
+  return client.sendCommand(cmd.map(String));
+}
+
+async function redis(...cmd: Cmd): Promise<unknown> {
+  if (storeMode === "redis") return tcp(...cmd);
   const res = await fetch(URL_!, {
     method: "POST",
     headers: { Authorization: `Bearer ${TOKEN}`, "Content-Type": "application/json" },
@@ -28,24 +49,24 @@ const mem: Mem = (g.__crmMem ??= { kv: new Map(), z: new Map() });
 
 async function put(key: string, value: unknown) {
   const s = JSON.stringify(value);
-  if (storeMode === "redis") await redis("SET", key, s);
+  if (isPersistent) await redis("SET", key, s);
   else mem.kv.set(key, s);
 }
 async function fetchOne<T>(key: string): Promise<T | null> {
-  const raw = storeMode === "redis" ? ((await redis("GET", key)) as string | null) : (mem.kv.get(key) ?? null);
+  const raw = isPersistent ? ((await redis("GET", key)) as string | null) : (mem.kv.get(key) ?? null);
   return raw ? (JSON.parse(raw) as T) : null;
 }
 async function fetchMany<T>(keys: string[]): Promise<T[]> {
   if (!keys.length) return [];
-  const raws = storeMode === "redis" ? ((await redis("MGET", ...keys)) as (string | null)[]) : keys.map((k) => mem.kv.get(k) ?? null);
+  const raws = isPersistent ? ((await redis("MGET", ...keys)) as (string | null)[]) : keys.map((k) => mem.kv.get(k) ?? null);
   return raws.filter((r): r is string => !!r).map((r) => JSON.parse(r) as T);
 }
 async function index(set: string, score: number, member: string) {
-  if (storeMode === "redis") await redis("ZADD", set, score, member);
+  if (isPersistent) await redis("ZADD", set, score, member);
   else (mem.z.get(set) ?? mem.z.set(set, new Map()).get(set)!).set(member, score);
 }
 async function newest(set: string, limit: number): Promise<string[]> {
-  if (storeMode === "redis") return (await redis("ZRANGE", set, 0, limit - 1, "REV")) as string[];
+  if (isPersistent) return (await redis("ZRANGE", set, 0, limit - 1, "REV")) as string[];
   return [...(mem.z.get(set) ?? new Map()).entries()].sort((a, b) => b[1] - a[1]).slice(0, limit).map(([m]) => m);
 }
 

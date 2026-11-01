@@ -1,7 +1,7 @@
 import { BUSINESS } from "@/config/receptionist";
 import { Nav } from "@/components/nav";
 import { requireSession } from "@/lib/crm/auth";
-import { storeMode } from "@/lib/crm/store";
+import { isPersistent } from "@/lib/crm/store";
 import { logout } from "../actions";
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
@@ -14,8 +14,8 @@ export default async function DashboardLayout({ children }: { children: React.Re
         <form action={logout}><button className="btn" type="submit">Sign out</button></form>
       </aside>
       <main className="main">
-        {storeMode === "memory" && (
-          <div className="notice">No database connected yet, so data disappears on restart. Add Upstash Redis in Vercel → Storage to keep it.</div>
+        {!isPersistent && (
+          <div className="notice">No database connected yet, so data disappears on restart. Connect a Redis database in Vercel → Storage (it provides REDIS_URL) and redeploy to keep it.</div>
         )}
         {children}
       </main>
