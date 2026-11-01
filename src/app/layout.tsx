@@ -1,4 +1,6 @@
-export const metadata = { title: "AI Assist" };
+import "./globals.css";
+
+export const metadata = { title: "AI Assist", description: "AI receptionist CRM" };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (

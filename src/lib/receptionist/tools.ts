@@ -2,6 +2,7 @@ import { z } from "zod";
 import { BUSINESS, LOCATIONS, SERVICES } from "@/config/receptionist";
 import { busyBetween, createEvent } from "./google-calendar";
 import { jpNumber, sendSms } from "./twilio";
+import { saveJob } from "@/lib/crm/store";
 import { addDays, spoken, todayIn, weekdayOf, zonedToDate } from "./time";
 
 const size = z.enum(["car", "suv", "truck"]);
@@ -74,11 +75,21 @@ export async function run(tool: ToolName, raw: unknown): Promise<Record<string, 
 
     const price = s.prices[a.vehicle_size];
     const when = spoken(start, tz);
-    await createEvent({
+    const event = await createEvent({
       summary: `${s.label}: ${a.customer_name} (${a.vehicle_description})`,
       description: [`Price: $${price}`, `Vehicle: ${a.vehicle_description} (${a.vehicle_size})`, `Location type: ${a.location_type}`, `Phone: ${a.customer_phone ?? "unknown"}`, a.notes ? `Notes: ${a.notes}` : ""].filter(Boolean).join("\n"),
       location: a.address, start, end, timeZone: tz,
     });
+    try {
+      await saveJob({
+        id: event.id, calendarEventId: event.id, createdAt: Date.now(), startsAt: start.toISOString(), endsAt: end.toISOString(),
+        serviceLabel: s.label, price, vehicle: a.vehicle_description, vehicleSize: a.vehicle_size, locationType: a.location_type,
+        address: a.address, customerName: a.customer_name, customerPhone: a.customer_phone, notes: a.notes, status: "scheduled",
+      });
+    } catch (err) {
+      // The job is on the calendar already; a CRM hiccup must not fail the booking.
+      console.error("CRM save failed:", err);
+    }
     const summary = `New job: ${a.customer_name}, ${a.vehicle_description}. ${s.label} $${price}. ${when}. ${a.location_type}, ${a.address}. Phone ${a.customer_phone ?? "unknown"}.${a.notes ? ` Notes: ${a.notes}` : ""}`;
     const jp = jpNumber() ? await sendSms(jpNumber(), summary) : { sent: false as const, reason: "jp_number_not_set" };
     // The booking is already on the calendar; a text failure must not undo it.

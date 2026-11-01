@@ -1,0 +1,49 @@
+# Connecting Retell
+
+Site URL below is `https://aiassist-cyan.vercel.app`. Replace it if you add a custom domain.
+`<SECRET>` is the same value as `RECEPTIONIST_SECRET` in Vercel.
+
+## 1. Add four custom functions (Agent -> Functions -> Add -> Custom Function)
+
+For every function: Method **POST**, header `Authorization: Bearer <SECRET>`, timeout 20s,
+leave "payload: args only" **off** (so the caller's phone number comes through).
+
+| Name | URL |
+|---|---|
+| `quote_price` | `https://aiassist-cyan.vercel.app/api/receptionist/quote_price` |
+| `check_availability` | `https://aiassist-cyan.vercel.app/api/receptionist/check_availability` |
+| `book_job` | `https://aiassist-cyan.vercel.app/api/receptionist/book_job` |
+| `text_jp` | `https://aiassist-cyan.vercel.app/api/receptionist/text_jp` |
+
+Parameters (JSON schema) for each:
+
+```json
+// quote_price
+{"type":"object","properties":{"service":{"type":"string","enum":["standard","premium"]},"vehicle_size":{"type":"string","enum":["car","suv","truck"]}},"required":["service","vehicle_size"]}
+
+// check_availability
+{"type":"object","properties":{"service":{"type":"string","enum":["standard","premium"]},"date":{"type":"string","description":"YYYY-MM-DD"}},"required":["service","date"]}
+
+// book_job  (use the exact "start" value returned by check_availability)
+{"type":"object","properties":{"service":{"type":"string","enum":["standard","premium"]},"vehicle_size":{"type":"string","enum":["car","suv","truck"]},"vehicle_description":{"type":"string"},"location_type":{"type":"string","enum":["garage","shade"]},"address":{"type":"string"},"start":{"type":"string","description":"ISO time from check_availability"},"customer_name":{"type":"string"},"customer_phone":{"type":"string","description":"+1XXXXXXXXXX, only if the caller gives a different number"},"notes":{"type":"string"}},"required":["service","vehicle_size","vehicle_description","location_type","address","start","customer_name"]}
+
+// text_jp
+{"type":"object","properties":{"reason":{"type":"string","enum":["dealer","complaint","custom","other_info","no_garage_or_shade"]},"message":{"type":"string"},"customer_name":{"type":"string"},"customer_phone":{"type":"string"}},"required":["reason","message"]}
+```
+
+Edit the `enum` service names to match `SERVICES` in `src/config/receptionist.ts`.
+
+## 2. Tell the agent today's date
+
+In the prompt, include `Current time: {{current_time_America/New_York}}` so "tomorrow" and "Friday" resolve correctly.
+Also tell it: call `check_availability` before offering times, and only book times that function returned.
+
+## 3. Send call records to the dashboard
+
+Agent settings -> **Webhook URL**:
+`https://aiassist-cyan.vercel.app/api/retell/webhook?token=<SECRET>`
+Enable the `call_ended` and `call_analyzed` events.
+
+## 4. Test
+
+Run a web call from Retell first, then the eight test calls. After each, check Calls, Jobs and the Google Calendar.
