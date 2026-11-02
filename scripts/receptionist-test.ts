@@ -31,3 +31,24 @@ import { saveJob, listJobs, setJobStatus, saveCall, listCalls, listCustomers } f
   assert.deepEqual([cust.name, cust.jobs, cust.spent, cust.calls], ["Sam", 1, 120, 1]);
   console.log("crm store tests passed");
 })();
+
+// Spoken dates and times
+import { parseSpokenDate, parseTimeOfDay } from "../src/lib/receptionist/time";
+const T = "2026-11-02"; // a Monday
+const d = (x: string) => parseSpokenDate(x, T)?.date;
+assert.equal(d("2026-11-26"), "2026-11-26");
+assert.equal(d("11/26/2026"), "2026-11-26");
+assert.equal(d("tomorrow"), "2026-11-03");
+assert.equal(d("thursday"), "2026-11-05");
+assert.equal(d("Monday"), "2026-11-02");
+assert.equal(d("the 5th"), "2026-11-05");
+assert.equal(d("thursday the 5th"), "2026-11-05");
+assert.equal(parseSpokenDate("thursday the 5th", T)?.mismatch, undefined);
+assert.ok(parseSpokenDate("tuesday the 5th", T)?.mismatch); // Nov 5 is a Thursday: flag it
+assert.equal(d("november 12th"), "2026-11-12");
+assert.equal(d("Jan 3"), "2027-01-03");
+assert.equal(d("tuesday at 3"), "2026-11-03");
+assert.equal(d("blah"), undefined);
+assert.equal(d("feb 30"), undefined);
+for (const [t, want] of [["1030", 630], ["10:30", 630], ["10:30 am", 630], ["1pm", 780], ["130", 810], ["3", 900], ["noon", 720], ["8", 480], ["25:00", null]] as const) assert.equal(parseTimeOfDay(t), want, t);
+console.log("spoken date/time tests passed");

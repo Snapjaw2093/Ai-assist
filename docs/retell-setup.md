@@ -21,8 +21,8 @@ Parameters (JSON schema) for each:
 // quote_price
 {"type":"object","properties":{"service":{"type":"string","enum":["standard","premium"]},"vehicle_size":{"type":"string","enum":["car","suv","truck"]}},"required":["service","vehicle_size"]}
 
-// check_availability
-{"type":"object","properties":{"service":{"type":"string","enum":["standard","premium"]},"date":{"type":"string","description":"YYYY-MM-DD"}},"required":["service","date"]}
+// check_availability  (pass the caller's own words; the server works out the date)
+{"type":"object","properties":{"service":{"type":"string","enum":["standard","premium"]},"date":{"type":"string","description":"The day exactly as the caller said it, like 'tuesday the 5th', 'tomorrow' or 'november 12'. Do not reformat it."},"preferred_time":{"type":"string","description":"The time the caller asked for, as they said it, like '10:30', '1030' or '1pm'. Leave out if they have no preference."}},"required":["service","date"]}
 
 // book_job  (use the exact "start" value returned by check_availability)
 {"type":"object","properties":{"service":{"type":"string","enum":["standard","premium"]},"vehicle_size":{"type":"string","enum":["car","suv","truck"]},"vehicle_description":{"type":"string"},"location_type":{"type":"string","enum":["garage","shade"]},"address":{"type":"string"},"start":{"type":"string","description":"ISO time from check_availability"},"customer_name":{"type":"string"},"customer_phone":{"type":"string","description":"+1XXXXXXXXXX, only if the caller gives a different number"},"notes":{"type":"string"}},"required":["service","vehicle_size","vehicle_description","location_type","address","start","customer_name"]}

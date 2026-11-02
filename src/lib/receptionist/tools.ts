@@ -3,16 +3,15 @@ import { BUSINESS, LOCATIONS, SERVICES } from "@/config/receptionist";
 import { busyBetween, createEvent } from "./google-calendar";
 import { jpNumber, sendSms } from "./twilio";
 import { saveJob } from "@/lib/crm/store";
-import { addDays, spoken, todayIn, weekdayOf, zonedToDate } from "./time";
+import { addDays, localMinutes, parseSpokenDate, parseTimeOfDay, spoken, todayIn, weekdayOf, WEEKDAY_NAMES, zonedToDate } from "./time";
 
 const size = z.enum(["car", "suv", "truck"]);
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "date must be YYYY-MM-DD");
 const serviceId = z.enum(SERVICES.map((s) => s.id) as [string, ...string[]]);
 const find = (id: string) => SERVICES.find((s) => s.id === id)!;
 
 export const schemas = {
   quote_price: z.object({ service: serviceId, vehicle_size: size }),
-  check_availability: z.object({ service: serviceId, date: day }),
+  check_availability: z.object({ service: serviceId, date: z.string().min(1).max(60), preferred_time: z.string().max(30).optional() }),
   book_job: z.object({
     service: serviceId, vehicle_size: size, vehicle_description: z.string().max(200),
     location_type: z.enum(LOCATIONS), address: z.string().max(300),
@@ -55,11 +54,32 @@ export async function run(tool: ToolName, raw: unknown): Promise<Record<string, 
   if (tool === "check_availability") {
     const a = schemas.check_availability.parse(raw);
     const today = todayIn(tz);
-    if (a.date < today || a.date > addDays(today, BUSINESS.maxDaysAhead)) return { available: [], note: `Dates must be within the next ${BUSINESS.maxDaysAhead} days.` };
-    const slots = await slotsFor(find(a.service).minutes, a.date);
+    const parsed = parseSpokenDate(a.date, today);
+    if (!parsed) return { available: [], note: "Could not tell which day that is. Ask the caller to say the day again, for example 'Tuesday the 5th'." };
+    const { date, mismatch } = parsed;
+    if (date < today || date > addDays(today, BUSINESS.maxDaysAhead)) return { date, available: [], note: `Dates must be within the next ${BUSINESS.maxDaysAhead} days.` };
+
+    let slots = await slotsFor(find(a.service).minutes, date);
+    const want = a.preferred_time ? parseTimeOfDay(a.preferred_time) : null;
+    let exact: boolean | undefined;
+    if (want !== null) {
+      const dist = (d: Date) => Math.abs(localMinutes(d, tz) - want);
+      exact = slots.some((d) => dist(d) === 0);
+      slots = [...slots].sort((x, y) => dist(x) - dist(y)).slice(0, 3).sort((x, y) => x.getTime() - y.getTime());
+    } else {
+      slots = slots.slice(0, 6);
+    }
+    const notes = [
+      mismatch ? `The caller said ${WEEKDAY_NAMES[mismatch.saidWeekday]} but ${date} is a ${WEEKDAY_NAMES[mismatch.actualWeekday]}. Confirm which day they mean before booking.` : "",
+      slots.length === 0 ? "Nothing open that day. Offer another day." : "",
+      exact === false ? "The exact time they asked for is taken. Offer the closest times listed." : "",
+    ].filter(Boolean).join(" ");
     return {
-      available: slots.slice(0, 6).map((d) => ({ start: d.toISOString(), spoken: spoken(d, tz) })),
-      note: slots.length ? undefined : "Nothing open that day. Try another date.",
+      date,
+      day_spoken: `${WEEKDAY_NAMES[weekdayOf(date)]} ${date}`,
+      exact_time_available: exact,
+      available: slots.map((d) => ({ start: d.toISOString(), spoken: spoken(d, tz) })),
+      note: notes || undefined,
     };
   }
 
