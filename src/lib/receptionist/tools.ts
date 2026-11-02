@@ -5,7 +5,8 @@ import { jpNumber, sendSms } from "./twilio";
 import { saveJob } from "@/lib/crm/store";
 import { addDays, localMinutes, parseSpokenDate, parseTimeOfDay, spoken, todayIn, weekdayOf, WEEKDAY_NAMES, zonedToDate } from "./time";
 
-const size = z.enum(["car", "suv", "truck"]);
+// Prices are flat, so vehicle size is optional and only kept for the job record.
+const size = z.enum(["car", "suv", "truck"]).optional().default("car");
 const serviceId = z.enum(SERVICES.map((s) => s.id) as [string, ...string[]]);
 const find = (id: string) => SERVICES.find((s) => s.id === id)!;
 
@@ -48,7 +49,12 @@ export async function run(tool: ToolName, raw: unknown): Promise<Record<string, 
   if (tool === "quote_price") {
     const a = schemas.quote_price.parse(raw);
     const s = find(a.service);
-    return { price_dollars: s.prices[a.vehicle_size], estimated_minutes: s.minutes, deposit_dollars: BUSINESS.depositDollars, payment: BUSINESS.paymentNote };
+    return {
+      service: s.label, price_dollars: s.price, starting_at: s.startingAt ?? false,
+      price_note: s.startingAt ? "Starting price: the final price is set after inspection." : undefined,
+      estimated_minutes: s.minutes, deposit_dollars: BUSINESS.depositDollars, payment: BUSINESS.paymentNote,
+      service_area: BUSINESS.serviceArea, travel: BUSINESS.travelNote,
+    };
   }
 
   if (tool === "check_availability") {
@@ -93,11 +99,12 @@ export async function run(tool: ToolName, raw: unknown): Promise<Record<string, 
     const stillFree = (await slotsFor(s.minutes, date)).some((d) => d.getTime() === start.getTime());
     if (!stillFree) return { booked: false, error: "That time is no longer available. Offer another slot." };
 
-    const price = s.prices[a.vehicle_size];
+    const price = s.price;
+    const priceText = `${s.startingAt ? "from " : ""}$${price}`;
     const when = spoken(start, tz);
     const event = await createEvent({
       summary: `${s.label}: ${a.customer_name} (${a.vehicle_description})`,
-      description: [`Price: $${price}`, `Vehicle: ${a.vehicle_description} (${a.vehicle_size})`, `Location type: ${a.location_type}`, `Phone: ${a.customer_phone ?? "unknown"}`, a.notes ? `Notes: ${a.notes}` : ""].filter(Boolean).join("\n"),
+      description: [`Price: ${priceText}`, `Vehicle: ${a.vehicle_description} (${a.vehicle_size})`, `Location type: ${a.location_type}`, `Phone: ${a.customer_phone ?? "unknown"}`, a.notes ? `Notes: ${a.notes}` : ""].filter(Boolean).join("\n"),
       location: a.address, start, end, timeZone: tz,
     });
     try {
@@ -110,11 +117,11 @@ export async function run(tool: ToolName, raw: unknown): Promise<Record<string, 
       // The job is on the calendar already; a CRM hiccup must not fail the booking.
       console.error("CRM save failed:", err);
     }
-    const summary = `New job: ${a.customer_name}, ${a.vehicle_description}. ${s.label} $${price}. ${when}. ${a.location_type}, ${a.address}. Phone ${a.customer_phone ?? "unknown"}.${a.notes ? ` Notes: ${a.notes}` : ""}`;
+    const summary = `New job: ${a.customer_name}, ${a.vehicle_description}. ${s.label} ${priceText}. ${when}. ${a.location_type}, ${a.address}. Phone ${a.customer_phone ?? "unknown"}.${a.notes ? ` Notes: ${a.notes}` : ""}`;
     const jp = jpNumber() ? await sendSms(jpNumber(), summary) : { sent: false as const, reason: "jp_number_not_set" };
     // The booking is already on the calendar; a text failure must not undo it.
     if (!jp.sent) console.warn("JP text not sent:", jp.reason);
-    const cust = a.customer_phone ? await sendSms(a.customer_phone, `${BUSINESS.name}: you're booked for ${when}. Total $${price}. Reply here with questions.`) : null;
+    const cust = a.customer_phone ? await sendSms(a.customer_phone, `${BUSINESS.name}: you're booked for ${when}. Total ${priceText}. Reply here with questions.`) : null;
     return { booked: true, when, price_dollars: price, deposit_dollars: BUSINESS.depositDollars, confirmation_text_sent: cust?.sent ?? false };
   }
 

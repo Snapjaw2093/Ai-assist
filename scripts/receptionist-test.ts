@@ -11,9 +11,11 @@ assert.equal(isTool("book_job"), true);
 assert.equal(isTool("nope"), false);
 
 (async () => {
-  const q = await run("quote_price", { service: "standard", vehicle_size: "suv" });
-  assert.equal(q.price_dollars, 120);
-  await assert.rejects(run("quote_price", { service: "bogus", vehicle_size: "suv" }));
+  const q = await run("quote_price", { service: "interior" });
+  assert.equal(q.price_dollars, 75);
+  const q3 = await run("quote_price", { service: "stage3" });
+  assert.deepEqual([q3.price_dollars, q3.starting_at, q3.deposit_dollars], [750, true, 50]);
+  await assert.rejects(run("quote_price", { service: "bogus" }));
   console.log("receptionist offline tests passed");
 })();
 
