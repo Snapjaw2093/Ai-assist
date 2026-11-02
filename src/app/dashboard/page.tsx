@@ -36,7 +36,7 @@ export default async function Overview() {
               {todays.map((j) => (
                 <div key={j.id} className="row">
                   <div><strong>{timeOnly(j.startsAt)}</strong> · {j.customerName}<div className="muted">{j.vehicle} · {j.serviceLabel} · {j.address}</div></div>
-                  <div style={{ textAlign: "right" }}><div>{money(j.price)}</div><span className={`badge b-${j.status}`}>{statusLabel(j.status)}</span></div>
+                  <div style={{ textAlign: "right" }}><div>{money(j.price)}</div><span className={`badge b-${j.status}`}>{statusLabel(j.status)}</span>{j.depositDollars && !j.depositPaid ? <div className="muted">deposit due</div> : null}</div>
                 </div>
               ))}
             </div>

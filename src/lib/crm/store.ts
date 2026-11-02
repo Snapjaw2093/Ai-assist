@@ -82,6 +82,11 @@ export async function setJobStatus(id: string, status: JobStatus) {
   if (job) await put(`job:${id}`, { ...job, status });
 }
 
+export async function markDepositPaid(id: string) {
+  const job = await fetchOne<Job>(`job:${id}`);
+  if (job) await put(`job:${id}`, { ...job, depositPaid: true, paidAt: Date.now() });
+}
+
 export async function saveCall(patch: Partial<CallRecord> & { id: string; at: number }) {
   const prev = await fetchOne<CallRecord>(`call:${patch.id}`);
   const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));

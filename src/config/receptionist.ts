@@ -17,7 +17,7 @@ export type Service = {
 export const BUSINESS = {
   name: "Blackline Care Detail",
   timezone: "America/New_York",
-  /** Hours the AI may book jobs, 24h clock. Index 0 = Sunday. null = closed. TODO: confirm your real hours. */
+  /** Hours the AI may book jobs, 24h clock. Index 0 = Sunday. null = closed. Mon-Sat. TODO: confirm your real hours. */
   hours: [
     null, // Sun
     { open: "08:00", close: "17:00" }, // Mon
@@ -25,7 +25,7 @@ export const BUSINESS = {
     { open: "08:00", close: "17:00" },
     { open: "08:00", close: "17:00" },
     { open: "08:00", close: "17:00" }, // Fri
-    null, // Sat
+    { open: "08:00", close: "17:00" }, // Sat
   ] as ({ open: string; close: string } | null)[],
   slotStepMinutes: 30,
   /** Don't offer slots starting sooner than this many hours from now. */
@@ -35,12 +35,11 @@ export const BUSINESS = {
   depositDollars: 50,
   paymentNote: "A $50 deposit is required to book and is applied to the total. The remaining balance is due on-site.",
   serviceArea: "Fully mobile, based in Venice, FL. We travel up to 25 miles from Venice.",
-  travelNote: "No travel fee within 10 miles of Venice. Beyond 10 miles there is a $30 travel fee.",
 };
 
 export const SERVICES: Service[] = [
-  { id: "interior", label: "Interior Detail", price: 75, minutes: 90 },
-  { id: "exterior", label: "Exterior Detail", price: 75, minutes: 90 },
+  { id: "interior", label: "Interior Detail", price: 75, minutes: 45 },
+  { id: "exterior", label: "Exterior Detail", price: 75, minutes: 45 },
   { id: "full_detail", label: "Full Detail (Interior and Exterior)", price: 150, minutes: 120 },
   { id: "clay_bar", label: "Clay Bar Treatment", price: 40, minutes: 60 },
   { id: "maintenance", label: "Maintenance Detail", price: 90, minutes: 90 },

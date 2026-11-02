@@ -17,6 +17,10 @@ export type Job = {
   notes?: string;
   status: JobStatus;
   calendarEventId?: string;
+  depositDollars?: number;
+  depositPaid?: boolean;
+  paymentUrl?: string;
+  paidAt?: number;
 };
 
 export type CallRecord = {

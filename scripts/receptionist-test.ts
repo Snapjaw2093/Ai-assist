@@ -54,3 +54,36 @@ assert.equal(d("blah"), undefined);
 assert.equal(d("feb 30"), undefined);
 for (const [t, want] of [["1030", 630], ["10:30", 630], ["10:30 am", 630], ["1pm", 780], ["130", 810], ["3", 900], ["noon", 720], ["8", 480], ["25:00", null]] as const) assert.equal(parseTimeOfDay(t), want, t);
 console.log("spoken date/time tests passed");
+
+// Stripe
+import { createHmac } from "node:crypto";
+import { createDepositCheckout, verifyStripeSignature } from "../src/lib/receptionist/stripe";
+import { markDepositPaid } from "../src/lib/crm/store";
+(async () => {
+  const raw = '{"type":"checkout.session.completed"}', secret = "whsec_test", t = 1_700_000_000;
+  const sig = createHmac("sha256", secret).update(`${t}.${raw}`).digest("hex");
+  assert.equal(verifyStripeSignature(raw, `t=${t},v1=${sig}`, secret, t + 10), true);
+  assert.equal(verifyStripeSignature(raw + " ", `t=${t},v1=${sig}`, secret, t + 10), false, "tampered body");
+  assert.equal(verifyStripeSignature(raw, `t=${t},v1=${sig}`, "other", t + 10), false, "wrong secret");
+  assert.equal(verifyStripeSignature(raw, `t=${t},v1=${sig}`, secret, t + 3600), false, "too old");
+  assert.equal(verifyStripeSignature(raw, null, secret, t), false);
+
+  // the payment-link request: right amount, tied to the job, nothing sent without keys
+  assert.equal(await createDepositCheckout({ jobId: "j", label: "X", customerName: "Sam", amountDollars: 50 }), null);
+  process.env.STRIPE_SECRET_KEY = "sk_test_x"; process.env.SITE_URL = "https://example.com";
+  const realFetch = globalThis.fetch; let seen: { url?: string; body?: string; auth?: string } = {};
+  globalThis.fetch = (async (u: string, init: RequestInit) => { seen = { url: u, body: String(init.body), auth: (init.headers as Record<string, string>).Authorization }; return new Response(JSON.stringify({ url: "https://checkout.stripe.com/c/pay/abc" }), { status: 200 }); }) as typeof fetch;
+  const r = await createDepositCheckout({ jobId: "job123", label: "Interior Detail", customerName: "Sam", amountDollars: 50 });
+  globalThis.fetch = realFetch;
+  assert.equal(r?.url, "https://checkout.stripe.com/c/pay/abc");
+  assert.equal(seen.url, "https://api.stripe.com/v1/checkout/sessions");
+  assert.ok(seen.body!.includes("unit_amount%5D=5000") && seen.body!.includes("metadata%5Bjob_id%5D=job123") && seen.body!.includes("success_url=https%3A%2F%2Fexample.com%2Fpaid"));
+  assert.equal(seen.auth, "Bearer sk_test_x");
+
+  // paying flips the job to paid
+  const { saveJob, listJobs } = await import("../src/lib/crm/store");
+  await saveJob({ id: "dep1", createdAt: 1, startsAt: "2026-12-05T15:00:00.000Z", endsAt: "2026-12-05T16:00:00.000Z", serviceLabel: "Interior", price: 75, vehicle: "X", vehicleSize: "car", locationType: "garage", address: "a", customerName: "Dee", status: "scheduled", depositDollars: 50, depositPaid: false });
+  await markDepositPaid("dep1");
+  assert.equal((await listJobs()).find((j) => j.id === "dep1")?.depositPaid, true);
+  console.log("stripe tests passed");
+})();

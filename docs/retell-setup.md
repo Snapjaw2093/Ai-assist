@@ -47,3 +47,12 @@ Enable the `call_ended` and `call_analyzed` events.
 ## 4. Test
 
 Run a web call from Retell first, then the eight test calls. After each, check Calls, Jobs and the Google Calendar.
+
+## 5. Stripe deposits (optional until you add keys)
+
+Without Stripe keys the app still books jobs and tells JP the deposit link wasn't created.
+1. In Stripe, use **test mode** first. Developers -> API keys -> copy the *secret* key into Vercel as `STRIPE_SECRET_KEY`.
+2. Developers -> Webhooks -> Add endpoint: `https://aiassist-cyan.vercel.app/api/stripe/webhook`, event `checkout.session.completed`.
+   Copy its *signing secret* into Vercel as `STRIPE_WEBHOOK_SECRET`.
+3. Redeploy. Pay a test booking with card `4242 4242 4242 4242`; the Jobs page should flip Due -> Paid.
+4. When happy, swap in the live keys and a live-mode webhook.

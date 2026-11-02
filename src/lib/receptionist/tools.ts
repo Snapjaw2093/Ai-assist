@@ -3,6 +3,7 @@ import { BUSINESS, LOCATIONS, SERVICES } from "@/config/receptionist";
 import { busyBetween, createEvent } from "./google-calendar";
 import { jpNumber, sendSms } from "./twilio";
 import { saveJob } from "@/lib/crm/store";
+import { createDepositCheckout } from "./stripe";
 import { addDays, localMinutes, parseSpokenDate, parseTimeOfDay, spoken, todayIn, weekdayOf, WEEKDAY_NAMES, zonedToDate } from "./time";
 
 // Prices are flat, so vehicle size is optional and only kept for the job record.
@@ -53,7 +54,7 @@ export async function run(tool: ToolName, raw: unknown): Promise<Record<string, 
       service: s.label, price_dollars: s.price, starting_at: s.startingAt ?? false,
       price_note: s.startingAt ? "Starting price: the final price is set after inspection." : undefined,
       estimated_minutes: s.minutes, deposit_dollars: BUSINESS.depositDollars, payment: BUSINESS.paymentNote,
-      service_area: BUSINESS.serviceArea, travel: BUSINESS.travelNote,
+      service_area: BUSINESS.serviceArea,
     };
   }
 
@@ -107,22 +108,34 @@ export async function run(tool: ToolName, raw: unknown): Promise<Record<string, 
       description: [`Price: ${priceText}`, `Vehicle: ${a.vehicle_description} (${a.vehicle_size})`, `Location type: ${a.location_type}`, `Phone: ${a.customer_phone ?? "unknown"}`, a.notes ? `Notes: ${a.notes}` : ""].filter(Boolean).join("\n"),
       location: a.address, start, end, timeZone: tz,
     });
+    // Deposit: a Stripe payment page, texted to the customer. Failure here never undoes the booking.
+    const deposit = await createDepositCheckout({ jobId: event.id, label: s.label, customerName: a.customer_name, amountDollars: BUSINESS.depositDollars });
     try {
       await saveJob({
         id: event.id, calendarEventId: event.id, createdAt: Date.now(), startsAt: start.toISOString(), endsAt: end.toISOString(),
         serviceLabel: s.label, price, vehicle: a.vehicle_description, vehicleSize: a.vehicle_size, locationType: a.location_type,
         address: a.address, customerName: a.customer_name, customerPhone: a.customer_phone, notes: a.notes, status: "scheduled",
+        depositDollars: BUSINESS.depositDollars, depositPaid: false, paymentUrl: deposit?.url,
       });
     } catch (err) {
       // The job is on the calendar already; a CRM hiccup must not fail the booking.
       console.error("CRM save failed:", err);
     }
-    const summary = `New job: ${a.customer_name}, ${a.vehicle_description}. ${s.label} ${priceText}. ${when}. ${a.location_type}, ${a.address}. Phone ${a.customer_phone ?? "unknown"}.${a.notes ? ` Notes: ${a.notes}` : ""}`;
+    const depositLine = BUSINESS.depositDollars > 0 ? (deposit ? ` Deposit $${BUSINESS.depositDollars}: payment link sent to customer, shows as paid on the dashboard.` : ` Deposit $${BUSINESS.depositDollars}: NO payment link was created, send one yourself.`) : "";
+    const summary = `New job: ${a.customer_name}, ${a.vehicle_description}. ${s.label} ${priceText}. ${when}. ${a.location_type}, ${a.address}. Phone ${a.customer_phone ?? "unknown"}.${a.notes ? ` Notes: ${a.notes}` : ""}${depositLine}`;
     const jp = jpNumber() ? await sendSms(jpNumber(), summary) : { sent: false as const, reason: "jp_number_not_set" };
     // The booking is already on the calendar; a text failure must not undo it.
     if (!jp.sent) console.warn("JP text not sent:", jp.reason);
-    const cust = a.customer_phone ? await sendSms(a.customer_phone, `${BUSINESS.name}: you're booked for ${when}. Total ${priceText}. Reply here with questions.`) : null;
-    return { booked: true, when, price_dollars: price, deposit_dollars: BUSINESS.depositDollars, confirmation_text_sent: cust?.sent ?? false };
+    const custText = `${BUSINESS.name}: you're booked for ${when}. Total ${priceText}.${deposit ? ` Please pay your $${BUSINESS.depositDollars} deposit to hold your spot: ${deposit.url}` : ""}`;
+    const cust = a.customer_phone ? await sendSms(a.customer_phone, custText) : null;
+    const linkSent = !!(deposit && cust?.sent);
+    return {
+      booked: true, when, price_dollars: price, deposit_dollars: BUSINESS.depositDollars,
+      confirmation_text_sent: cust?.sent ?? false, deposit_link_sent: linkSent,
+      say_to_caller: BUSINESS.depositDollars === 0 ? "You're booked." : linkSent
+        ? `You're booked. I'm texting you a secure link now to pay the $${BUSINESS.depositDollars} deposit, which holds your spot and is applied to your total.`
+        : `You're booked. A $${BUSINESS.depositDollars} deposit is required to hold the spot, and JP will text you a payment link shortly.`,
+    };
   }
 
   const a = schemas.text_jp.parse(raw);

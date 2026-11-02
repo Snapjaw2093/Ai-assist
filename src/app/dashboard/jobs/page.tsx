@@ -17,7 +17,7 @@ export default async function Jobs({ searchParams }: { searchParams: Promise<{ s
       <div className="card tablecard">
         {jobs.length === 0 ? <div className="empty">No jobs here yet.</div> : (
           <table>
-            <thead><tr><th>When</th><th>Customer</th><th>Job</th><th>Where</th><th>Price</th><th>Status</th><th /></tr></thead>
+            <thead><tr><th>When</th><th>Customer</th><th>Job</th><th>Where</th><th>Price</th><th>Deposit</th><th>Status</th><th /></tr></thead>
             <tbody>
               {jobs.map((j) => (
                 <tr key={j.id}>
@@ -26,6 +26,7 @@ export default async function Jobs({ searchParams }: { searchParams: Promise<{ s
                   <td>{j.serviceLabel}<div className="muted">{j.vehicle}</div>{j.notes && <div className="muted">“{j.notes}”</div>}</td>
                   <td>{j.address}<div className="muted">{j.locationType}</div></td>
                   <td>{money(j.price)}</td>
+                  <td>{j.depositDollars ? (j.depositPaid ? <span className="badge b-completed">Paid</span> : <><span className="badge b-no_show">Due</span>{j.paymentUrl && <div><a href={j.paymentUrl} target="_blank" rel="noopener noreferrer" style={{ color: "var(--accent)", fontSize: 13 }}>Payment link</a></div>}</>) : <span className="muted">—</span>}</td>
                   <td><span className={`badge b-${j.status}`}>{statusLabel(j.status)}</span></td>
                   <td><JobActions job={j} /></td>
                 </tr>
